@@ -24,6 +24,11 @@
   var players = [];
   var enemies = [];
 
+  var cameraPan = {
+    x: 200,
+    y: 200
+  }
+
   var config = {
     playerSpeed: 1
   }
@@ -41,11 +46,12 @@
       },
       width: 0,
       height: 0
-    }
+    },
+    isPanning: false
   }
 
   // Generate a new character
-  function createCharacter(team) {
+  function createPlayer(team) {
     if (typeof team !== 'undefined') {
       var myTeam = team; // No validation :)
     } else {
@@ -53,13 +59,51 @@
       var myTeam = teams[Math.round(Math.random())];
     }
 
-    var type = ['person', 'tank']
-    var myType = type[Math.round(-0.4 + Math.random())];
+    var type = ['person', 'tank', 'medic']
+    var myType = type[Math.floor(Math.random() * type.length)];
+
+    switch(myType) {
+      case 'tank':
+        var width = 50
+        var height = 50
+        var speed = 15 + Math.random() * 5
+        var shield = 3
+        var healthEffect = -3
+        var weapon = {
+          style: 'aim',
+          range: 300,
+          speed: 1
+        }
+        break;
+
+      case 'person':
+        var width = 20
+        var height = 20
+        var speed = 7 + Math.random() * 3
+        var shield = 1
+        var healthEffect = -1
+        var weapon = {
+          style: 'aim',
+          range: 250,
+          speed: 4
+        }
+        break;
+
+      case 'medic':
+        var width = 5
+        var height = 5
+        var speed = 1 + Math.random() * 1
+        var shield = 0.25
+        var healthEffect = 10
+        var weapon = {
+          style: 'aim',
+          range: 75,
+          speed: 1
+        }
+        break;
+    }
 
     var startOffsetX = (myTeam == 'good') ? 200 : window.innerWidth;
-    var damagePotential = (myType == 'person') ? 1 : 5;
-    var width = (myType == 'person') ? 20 : 50;
-    var height = (myType == 'person') ? 20 : 50;
     var startX = startOffsetX + Math.floor(Math.random() * 500);
     var startY = 200 + Math.floor(Math.random() * 500);
 
@@ -78,9 +122,13 @@
         x: startX,
         y: startY,
       },
+      weapon: weapon,
       health: 100,
       selected: false,
-      damagePotential
+      healthEffect,
+      shield: shield,
+      speed: speed,
+      attackers: 0
     }
   }
 
@@ -101,48 +149,85 @@
         if(player.health > 0) {
           ctx.fillStyle = (player.team === 'good') ? 'rgb(0,150,20)': 'rgb(255,50,0)';
         } else {
-          ctx.fillStyle = (player.team === 'good') ? 'rgb(150,170,165)': 'rgb(200,195,180)';
+          ctx.fillStyle = (player.team === 'good') ? 'rgb(30,80,40)': 'rgb(100,80,60)';
         }
       }
 
       // Draw "player"
-      ctx.fillRect(player.origin.x - 10, player.origin.y - 10, player.size.height, player.size.height);
+      fill(player.origin.x - 10, player.origin.y - 10, player.size.height, player.size.height);
 
       // Draw health
       ctx.fillStyle = '#000000';
-      ctx.fillRect(player.origin.x, player.origin.y - 18, 18, 5);
+      fill(player.origin.x, player.origin.y - 18, 18, 5);
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(player.origin.x + 1, player.origin.y - 17, 16, 3);
+      fill(player.origin.x + 1, player.origin.y - 17, 16, 3);
       ctx.fillStyle = 'rgb(0,255,0)';
-      ctx.fillRect(player.origin.x + 1, player.origin.y - 17, 16 * player.health / 100, 3);
+      fill(player.origin.x + 1, player.origin.y - 17, 16 * player.health / 100, 3);
     }
 
     // Draw the current selection
     ctx.fillStyle = 'rgba(255,0,0,.2)'
-    ctx.fillRect(events.selection.start.x, events.selection.start.y, events.selection.width, events.selection.height);
+    fill(events.selection.start.x, events.selection.start.y, events.selection.width, events.selection.height);
 
   }
 
-  function calculateDamage() {
+  function fill(x, y, width, height) {
+    ctx.fillRect(x + cameraPan.x, y + cameraPan.y, width, height);
+  }
+
+  function calculateHealth() {
+
+    // Reset attacker stats
+    for(var i = 0; i < players.length; i++) {
+      players[i].attackers = 0;
+    }
+
     for(var i = 0; i < players.length; i++) {
       var thisPlayer = players[i];
+
       // Standard idea: every player hurts nearby players
       for(var j = 0; j < players.length; j++) {
         var otherPlayer = players[j];
-        if(thisPlayer.team !== otherPlayer.team && thisPlayer.health > 0 && otherPlayer.health > 0) {
+        if(thisPlayer.health > 0 && otherPlayer.health > 0) {
+
+          // Don't heal members of the other team
+          if(thisPlayer.healthEffect > 0 && thisPlayer.team !== otherPlayer.team) {
+            continue;
+          }
+
+          // Don't heal teammates who are healthy
+          if(thisPlayer.healthEffect > 0 && thisPlayer.team == otherPlayer.team && otherPlayer.health > 95) {
+            continue;
+          }
+
+          // Don't hurt teammates
+          if(thisPlayer.healthEffect < 0 && thisPlayer.team == otherPlayer.team) {
+            continue;
+          }
+
+          // Calculate the distance between thisPlayer and otherPlayer
           var distance = Math.sqrt(
             Math.pow((thisPlayer.origin.x - otherPlayer.origin.x), 2) +
             Math.pow((thisPlayer.origin.y - otherPlayer.origin.y), 2)
           );
 
-          if(distance < 200) {
-            otherPlayer.health -= thisPlayer.damagePotential / 10;
+          // If the distance is within the weapon's range
+          if(distance < thisPlayer.weapon.range) {
+            if(thisPlayer.healthEffect < 0) {
+              otherPlayer.health += (thisPlayer.healthEffect / 10) / otherPlayer.shield; // Shield protects you from damage
+            } else {
+              otherPlayer.health += (thisPlayer.healthEffect / 10);
+            }
+            if(otherPlayer.health > 100) {
+              otherPlayer.health = 100
+            }
+            otherPlayer.attackers += 1;
 
             // DEBUG
             ctx.strokeStyle = (thisPlayer.team === 'good') ? 'rgb(0,150,20)': 'rgb(255,50,0)';
             ctx.beginPath();
-            ctx.moveTo(thisPlayer.origin.x, thisPlayer.origin.y);
-            ctx.lineTo(otherPlayer.origin.x, otherPlayer.origin.y);
+            ctx.moveTo(thisPlayer.origin.x + cameraPan.x, thisPlayer.origin.y + cameraPan.y);
+            ctx.lineTo(otherPlayer.origin.x + cameraPan.x, otherPlayer.origin.y + cameraPan.y);
             ctx.stroke();
 
             // Stop looping through enemies. It can only hurt one player at the time
@@ -160,7 +245,7 @@
     for(var i = 0; i < players.length; i++) {
       var player = players[i];
 
-      if(player.health < 0) {
+      if(player.health <= 0) {
         continue;
       }
 
@@ -176,7 +261,7 @@
       if (segmentLength > 5) {
 
         // Calculate how much we should add to x with each iteration
-        var addX = Math.abs(player.destination.x - player.origin.x) / segmentLength * config.playerSpeed;
+        var addX = Math.abs(player.destination.x - player.origin.x) / segmentLength * config.playerSpeed * (player.speed / 10);
         var addY = addX * slope;
 
         // Update x
@@ -218,7 +303,9 @@
         player.origin.y < (bottomY) &&
         player.origin.x > (topX) &&
         player.origin.y > (topY) &&
-        player.team == 'good'
+        player.team == 'good' &&
+        player.health > 0
+
       ) {
         player.selected = true;
       }
@@ -243,19 +330,20 @@
     // Stupid: Find the closest player and hunt them down
     for(var i = 0; i < players.length; i++) {
 
-      // Ignore most cycles. This makes enemies much stupider
-      // and greatly affects the feel and difficulty of the game
-      if(Math.random() < 0.1) return false;
-
       var thisPlayer = players[i];
       var smallestDistanceFound = 10000;
       var nearbyCoordinates = {}
 
       if(thisPlayer.team == 'good') continue; // Ignore good players
-      if(thisPlayer.health < 0) continue; // Ignore dead players
+      if(thisPlayer.health <= 0) continue; // Ignore dead players
+
+      // Ignore most cycles. This makes enemies much stupider
+      // and greatly affects the feel and difficulty of the game
+      if(Math.random() < 0.1) return false;
+
       for(var j = 0; j < players.length; j++) {
         var otherPlayer = players[j];
-        if(otherPlayer.team == 'bad' || otherPlayer.health < 0) continue; // Ignore team mates (other bad players)
+        if(otherPlayer.team == 'bad' || otherPlayer.health <= 0 || otherPlayer.attackers > 3) continue; // Ignore team mates (other bad players)
         var distance = Math.sqrt(
           Math.pow((thisPlayer.origin.x - otherPlayer.origin.x), 2) +
           Math.pow((thisPlayer.origin.y - otherPlayer.origin.y), 2)
@@ -271,7 +359,22 @@
 
       thisPlayer.destination = nearbyCoordinates
     }
+  }
 
+  function moveIdlePlayers() {
+    for(var i = 0; i < players.length; i++) {
+      var player = players[i];
+      if (
+        Math.abs(player.origin.x - player.destination.x) < 6 &&
+        Math.abs(player.origin.y - player.destination.y) < 6
+      ) {
+        if(Math.random() > .99) {
+          var size = Math.random() * 150
+          player.destination.x = player.origin.x + (-0.5 * size + Math.random() * size)
+          player.destination.y = player.origin.y + (-0.5 * size + Math.random() * size)
+        }
+      }
+    }
   }
 
   function unSelectAll() {
@@ -293,21 +396,22 @@
   }
 
   function spawnEnemies() {
-    players.push(createCharacter('bad'))
+    players.push(createPlayer('bad'))
   }
 
   function time() {
 
     // The random element makes enemies a bit slower
     // Less 1:1-chasy
-    if(Math.random() > 0.5) {
+    if(Math.random() > 0.95) {
       moveEnemyBots(500);
     }
     movePlayers();
     analyzeSelection();
-    calculateDamage();
+    calculateHealth();
+    moveIdlePlayers();
 
-    if(Math.random() > 0.99) {
+    if(Math.random() > 0.995) {
       spawnEnemies();
     }
 
@@ -317,10 +421,11 @@
 
     // Make canvas full screen
     canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
 
     // Set up some demo players
     for(var i = 0; i < 50; i++) {
-      players[i] = createCharacter()
+      players[i] = createPlayer()
     }
 
     // Render scene over and over
@@ -339,29 +444,37 @@
       events.mouseWasDragged = false;
       removeSelection();
       events.selection.start = {
-        x: evt.clientX,
-        y: evt.clientY
+        x: evt.clientX - cameraPan.x,
+        y: evt.clientY - cameraPan.y
       }
       events.selection.end = {
-        x: evt.clientX,
-        y: evt.clientY
+        x: evt.clientX - cameraPan.x,
+        y: evt.clientY - cameraPan.y
       }
       console.log('Mouse down')
     }
     canvas.onmousemove = function(evt) {
       if(events.mouseDown == true) {
-        if ( // Ingore accidental drags
-          Math.abs(events.selection.start.x - evt.clientX) > 10 &&
-          Math.abs(events.selection.start.y - evt.clientY) > 10
-        ) {
-          events.selection.end = {
-            x: evt.clientX,
-            y: evt.clientY
+        if(events.isPanning == true) {
+          cameraPan = {
+            x: evt.clientX - events.selection.start.x,
+            y: evt.clientY - events.selection.start.y
           }
-          if(!events.mouseWasDragged) {
-            unSelectAll()
+          console.log('panning')
+        } else {
+          if ( // Ingore accidental drags
+            Math.abs(events.selection.start.x + cameraPan.x - evt.clientX) > 10 &&
+            Math.abs(events.selection.start.y + cameraPan.y - evt.clientY) > 10
+          ) {
+            events.selection.end = {
+              x: evt.clientX - cameraPan.x,
+              y: evt.clientY - cameraPan.y
+            }
+            if(!events.mouseWasDragged) {
+              unSelectAll()
+            }
+            events.mouseWasDragged = true;
           }
-          events.mouseWasDragged = true;
         }
       }
       console.log('Mouse moved')
@@ -369,20 +482,23 @@
     canvas.onmouseup = function(evt) {
       events.mouseDown = false;
       events.selection.end = {
-        x: evt.clientX,
-        y: evt.clientY
+        x: evt.clientX - cameraPan.x,
+        y: evt.clientY - cameraPan.y
       }
       if(!events.mouseWasDragged) {
-        moveSelected(evt.clientX, evt.clientY);
+        moveSelected(evt.clientX - cameraPan.x, evt.clientY - cameraPan.y);
         unSelectAll();
       }
       removeSelection();
       console.log('Mouse up')
     }
     canvas.onclick = function(evt) {
-      // Demo: move player 0 to new position
-
-
+    }
+    document.body.onkeypress = function(evt) {
+      if(evt.key == 's') {
+        events.isPanning = (events.isPanning) ? false : true;
+        console.log('Panning mode changed')
+      }
     }
 
   }
