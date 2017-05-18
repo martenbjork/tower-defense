@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tower Defence</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      background: #f7f7f7;
+    }
+  </style>
+</head>
+<body>
+
+  <canvas width="1000" height="1000"></canvas>
+  <script>
+
+  var canvas = document.querySelector('canvas');
+  var ctx = canvas.getContext('2d');
+
+  var players = [];
+  var enemies = [];
+
+  var config = {
+    playerSpeed: 1
+  }
+  var events = {
+    mouseDown: false,
+    mouseWasDragged: false,
+    selection: {
+      start: {
+        x: 0,
+        y: 0
+      },
+      end: {
+        x: 0,
+        y: 0
+      },
+      width: 0,
+      height: 0
+    }
+  }
+
+  // Generate a new character
+  function createCharacter(team) {
+    if (typeof team !== 'undefined') {
+      var myTeam = team; // No validation :)
+    } else {
+      var teams = ['good', 'bad']
+      var myTeam = teams[Math.round(Math.random())];
+    }
+
+    var type = ['person', 'tank']
+    var myType = type[Math.round(-0.4 + Math.random())];
+
+    var startOffsetX = (myTeam == 'good') ? 200 : window.innerWidth;
+    var damagePotential = (myType == 'person') ? 1 : 5;
+    var width = (myType == 'person') ? 20 : 50;
+    var height = (myType == 'person') ? 20 : 50;
+    var startX = startOffsetX + Math.floor(Math.random() * 500);
+    var startY = 200 + Math.floor(Math.random() * 500);
+
+    return {
+      team: myTeam,
+      type: myType,
+      size: {
+        width: width,
+        height: height
+      },
+      origin: {
+        x: startX,
+        y: startY,
+      },
+      destination: {
+        x: startX,
+        y: startY,
+      },
+      health: 100,
+      selected: false,
+      damagePotential
+    }
+  }
+
+  // Rendering function
+  function render() {
+
+    // Empty canvas
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Loop through each player on players and draw them
+    for(var i = 0; i < players.length; i++) {
+      var player = players[i];
+
+      if (player.selected) {
+        ctx.fillStyle = 'rgb(0,150,255)';
+      } else {
+        if(player.health > 0) {
+          ctx.fillStyle = (player.team === 'good') ? 'rgb(0,150,20)': 'rgb(255,50,0)';
+        } else {
+          ctx.fillStyle = (player.team === 'good') ? 'rgb(150,170,165)': 'rgb(200,195,180)';
+        }
+      }
+
+      // Draw "player"
+      ctx.fillRect(player.origin.x - 10, player.origin.y - 10, player.size.height, player.size.height);
+
+      // Draw health
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(player.origin.x, player.origin.y - 18, 18, 5);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(player.origin.x + 1, player.origin.y - 17, 16, 3);
+      ctx.fillStyle = 'rgb(0,255,0)';
+      ctx.fillRect(player.origin.x + 1, player.origin.y - 17, 16 * player.health / 100, 3);
+    }
+
+    // Draw the current selection
+    ctx.fillStyle = 'rgba(255,0,0,.2)'
+    ctx.fillRect(events.selection.start.x, events.selection.start.y, events.selection.width, events.selection.height);
+
+  }
+
+  function calculateDamage() {
+    for(var i = 0; i < players.length; i++) {
+      var thisPlayer = players[i];
+      // Standard idea: every player hurts nearby players
+      for(var j = 0; j < players.length; j++) {
+        var otherPlayer = players[j];
+        if(thisPlayer.team !== otherPlayer.team && thisPlayer.health > 0 && otherPlayer.health > 0) {
+          var distance = Math.sqrt(
+            Math.pow((thisPlayer.origin.x - otherPlayer.origin.x), 2) +
+            Math.pow((thisPlayer.origin.y - otherPlayer.origin.y), 2)
+          );
+
+          if(distance < 200) {
+            otherPlayer.health -= thisPlayer.damagePotential / 10;
+
+            // DEBUG
+            ctx.strokeStyle = (thisPlayer.team === 'good') ? 'rgb(0,150,20)': 'rgb(255,50,0)';
+            ctx.beginPath();
+            ctx.moveTo(thisPlayer.origin.x, thisPlayer.origin.y);
+            ctx.lineTo(otherPlayer.origin.x, otherPlayer.origin.y);
+            ctx.stroke();
+
+            // Stop looping through enemies. It can only hurt one player at the time
+            break;
+
+          }
+        }
+      }
+    }
+  }
+
+  function movePlayers() {
+
+    // Loop through the players
+    for(var i = 0; i < players.length; i++) {
+      var player = players[i];
+
+      if(player.health < 0) {
+        continue;
+      }
+
+      // Calculate slope between origin and destination
+      var slope = (player.origin.y - player.destination.y) / (player.origin.x - player.destination.x)
+
+      // Calculate length of path to destination
+      var segmentLength = Math.sqrt(
+        Math.pow(player.origin.x - player.destination.x, 2) +
+        Math.pow(player.origin.y - player.destination.y, 2)
+      )
+
+      if (segmentLength > 5) {
+
+        // Calculate how much we should add to x with each iteration
+        var addX = Math.abs(player.destination.x - player.origin.x) / segmentLength * config.playerSpeed;
+        var addY = addX * slope;
+
+        // Update x
+        if (player.origin.x > player.destination.x) {
+          player.origin.x -= addX;
+        } else if (player.origin.x < player.destination.x) {
+          player.origin.x += addX;
+        }
+
+        // Update y
+        if (player.origin.x > player.destination.x) {
+          player.origin.y -= addY;
+        } else if (player.origin.x < player.destination.x) {
+          player.origin.y += addY;
+        }
+      }
+    }
+  }
+
+  // Figure out what's selected
+  function analyzeSelection() {
+
+    // Set selection width and height so that this calculation isn't implemented
+    // differently in the code
+    events.selection.width = (events.selection.end.x - events.selection.start.x)
+    events.selection.height = (events.selection.end.y - events.selection.start.y)
+
+    // Detect which players are selected
+    for(var i = 0; i < players.length; i++) {
+      var player = players[i];
+
+      var topX = Math.min(...[events.selection.start.x, events.selection.end.x])
+      var topY = Math.min(...[events.selection.start.y, events.selection.end.y])
+      var bottomX = topX + Math.abs(events.selection.width)
+      var bottomY = topY + Math.abs(events.selection.height)
+
+      if (
+        player.origin.x < (bottomX) &&
+        player.origin.y < (bottomY) &&
+        player.origin.x > (topX) &&
+        player.origin.y > (topY) &&
+        player.team == 'good'
+      ) {
+        player.selected = true;
+      }
+    }
+  }
+
+  function removeSelection() {
+    events.selection.start = {
+      x: 0,
+      y: 0
+    }
+    events.selection.end = {
+      x: 0,
+      y: 0
+    }
+    events.selection.width = 0
+    events.selection.height = 0
+  }
+
+  function moveEnemyBots() {
+
+    // Stupid: Find the closest player and hunt them down
+    for(var i = 0; i < players.length; i++) {
+
+      // Ignore most cycles. This makes enemies much stupider
+      // and greatly affects the feel and difficulty of the game
+      if(Math.random() < 0.1) return false;
+
+      var thisPlayer = players[i];
+      var smallestDistanceFound = 10000;
+      var nearbyCoordinates = {}
+
+      if(thisPlayer.team == 'good') continue; // Ignore good players
+      if(thisPlayer.health < 0) continue; // Ignore dead players
+      for(var j = 0; j < players.length; j++) {
+        var otherPlayer = players[j];
+        if(otherPlayer.team == 'bad' || otherPlayer.health < 0) continue; // Ignore team mates (other bad players)
+        var distance = Math.sqrt(
+          Math.pow((thisPlayer.origin.x - otherPlayer.origin.x), 2) +
+          Math.pow((thisPlayer.origin.y - otherPlayer.origin.y), 2)
+        );
+        if(distance < smallestDistanceFound) {
+          smallestDistanceFound = distance;
+          nearbyCoordinates = {
+            x: otherPlayer.origin.x + Math.random() * 50,
+            y: otherPlayer.origin.y + Math.random() * 50
+          }
+        }
+      }
+
+      thisPlayer.destination = nearbyCoordinates
+    }
+
+  }
+
+  function unSelectAll() {
+    for(var i = 0; i < players.length; i++) {
+      players[i].selected = false
+    }
+  }
+
+  function moveSelected(x, y) {
+    for(var i = 0; i < players.length; i++) {
+      var player = players[i];
+      if (player.selected) {
+        players[i].destination = {
+          x: x + (-50 + Math.random() * 100), // Note the randomness
+          y: y + (-50 + Math.random() * 100)
+        }
+      }
+    }
+  }
+
+  function spawnEnemies() {
+    players.push(createCharacter('bad'))
+  }
+
+  function time() {
+
+    // The random element makes enemies a bit slower
+    // Less 1:1-chasy
+    if(Math.random() > 0.5) {
+      moveEnemyBots(500);
+    }
+    movePlayers();
+    analyzeSelection();
+    calculateDamage();
+
+    if(Math.random() > 0.99) {
+      spawnEnemies();
+    }
+
+  }
+
+  function run() {
+
+    // Make canvas full screen
+    canvas.width = window.innerWidth
+
+    // Set up some demo players
+    for(var i = 0; i < 50; i++) {
+      players[i] = createCharacter()
+    }
+
+    // Render scene over and over
+    setInterval( function() {
+      render();
+    }, 20);
+
+    // Start time in game
+    setInterval( function() {
+      time();
+    }, 20);
+
+    // Capture events
+    canvas.onmousedown = function(evt) {
+      events.mouseDown = true;
+      events.mouseWasDragged = false;
+      removeSelection();
+      events.selection.start = {
+        x: evt.clientX,
+        y: evt.clientY
+      }
+      events.selection.end = {
+        x: evt.clientX,
+        y: evt.clientY
+      }
+      console.log('Mouse down')
+    }
+    canvas.onmousemove = function(evt) {
+      if(events.mouseDown == true) {
+        if ( // Ingore accidental drags
+          Math.abs(events.selection.start.x - evt.clientX) > 10 &&
+          Math.abs(events.selection.start.y - evt.clientY) > 10
+        ) {
+          events.selection.end = {
+            x: evt.clientX,
+            y: evt.clientY
+          }
+          if(!events.mouseWasDragged) {
+            unSelectAll()
+          }
+          events.mouseWasDragged = true;
+        }
+      }
+      console.log('Mouse moved')
+    }
+    canvas.onmouseup = function(evt) {
+      events.mouseDown = false;
+      events.selection.end = {
+        x: evt.clientX,
+        y: evt.clientY
+      }
+      if(!events.mouseWasDragged) {
+        moveSelected(evt.clientX, evt.clientY);
+        unSelectAll();
+      }
+      removeSelection();
+      console.log('Mouse up')
+    }
+    canvas.onclick = function(evt) {
+      // Demo: move player 0 to new position
+
+
+    }
+
+  }
+
+  run();
+
+  </script>
+
+</body>
+</html>
