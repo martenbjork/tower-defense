@@ -17,16 +17,16 @@
 
   <canvas width="1000" height="1000"></canvas>
   <script>
-
+  var rotation = 0
   var canvas = document.querySelector('canvas');
   var ctx = canvas.getContext('2d');
 
   var players = [];
-  var enemies = [];
+  var trails = [];
 
   var cameraPan = {
-    x: 200,
-    y: 200
+    x: 5,
+    y: 5
   }
 
   var config = {
@@ -49,9 +49,15 @@
     },
     isPanning: false
   }
+  var spawnStats = {
+    type: 0
+  }
+  var spawnLimits = {
+    medic: 5
+  }
 
   // Generate a new character
-  function createPlayer(team) {
+  function createPlayer(team, type) {
     if (typeof team !== 'undefined') {
       var myTeam = team; // No validation :)
     } else {
@@ -59,46 +65,64 @@
       var myTeam = teams[Math.round(Math.random())];
     }
 
-    var type = ['person', 'tank', 'medic']
-    var myType = type[Math.floor(Math.random() * type.length)];
+    var types = ['robot', 'tank', 'medic']
+    var myType = types[Math.floor(Math.random() * types.length)];
+    spawnStats[myType] += 1
+    if(typeof spawnLimits[myType] !== 'undefined') {
+      if(spawnStats[myType] == spawnLimits[myType]) {
+        console.log('too many', myType)
+      }
+    }
 
     switch(myType) {
       case 'tank':
-        var width = 50
-        var height = 50
-        var speed = 15 + Math.random() * 5
-        var shield = 3
-        var healthEffect = -3
+        var width = 100
+        var height = 100
+        var speed = 10 + Math.random() * 3
+        var shield = 5
+        var healthEffect = -2
         var weapon = {
           style: 'aim',
           range: 300,
-          speed: 1
+          speed: 1,
+          aim: {
+            current: Math.random() * Math.PI * -1,
+            target: Math.random() * Math.PI * -1
+          }
         }
         break;
 
-      case 'person':
-        var width = 20
-        var height = 20
-        var speed = 7 + Math.random() * 3
+      case 'robot':
+        var width = 30
+        var height = 30
+        var speed = 25 + Math.random() * 5
         var shield = 1
         var healthEffect = -1
         var weapon = {
           style: 'aim',
           range: 250,
-          speed: 4
+          speed: 4,
+          aim: {
+            current: Math.random() * Math.PI,
+            target: Math.random() * Math.PI
+          }
         }
         break;
 
       case 'medic':
-        var width = 5
-        var height = 5
-        var speed = 1 + Math.random() * 1
+        var width = 100
+        var height = 100
+        var speed = 0
         var shield = 0.25
         var healthEffect = 10
         var weapon = {
           style: 'aim',
           range: 75,
-          speed: 1
+          speed: 1,
+          aim: {
+            current: Math.random() * Math.PI,
+            target: Math.random() * Math.PI
+          }
         }
         break;
     }
@@ -118,9 +142,15 @@
         x: startX,
         y: startY,
       },
-      destination: {
-        x: startX,
-        y: startY,
+      destination: [
+        {
+          x: startX,
+          y: startY,
+        }
+      ],
+      heading: {
+        current: Math.PI / -4 + Math.random() * Math.PI / 2,
+        target: Math.PI / -4 + Math.random() * Math.PI / 2
       },
       weapon: weapon,
       health: 100,
@@ -128,7 +158,13 @@
       healthEffect,
       shield: shield,
       speed: speed,
-      attackers: 0
+      attackers: 0,
+      fireing: false,
+      trail: [],
+      takingFireFrom: [],
+      animation: {
+        didJustFire: false
+      }
     }
   }
 
@@ -136,8 +172,20 @@
   function render() {
 
     // Empty canvas
-    ctx.fillStyle = '#ffffff'
+    ctx.fillStyle = '#E1E0DB'
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    /*players.sort(function(a) {
+      if(a.type == 'medic') {
+        return 1;
+      } else {
+        if(a.health > 0) {
+          return -1;
+        } else {
+          return -1;
+        }
+      }
+    });*/
 
     // Loop through each player on players and draw them
     for(var i = 0; i < players.length; i++) {
@@ -153,21 +201,137 @@
         }
       }
 
-      // Draw "player"
-      fill(player.origin.x - 10, player.origin.y - 10, player.size.height, player.size.height);
+      // Leave trail
+      if(Math.random() > 0.5 && player.speed > 0 && player.health > 0) {
+        player.trail.push({
+          size: player.size,
+          strength: 250,
+          x: player.origin.x + (player.size.width / 2) + ((player.size.width * -0.1) + Math.random() * player.size.width * 0.2),
+          y: player.origin.y + (player.size.height / 2) + ((player.size.height * -0.3) + Math.random() * player.size.height * 0.2),
+          width: 10 + Math.random() * 5,
+          height: 10 + Math.random() * 5,
+          health: player.health
+        })
+      }
 
-      // Draw health
-      ctx.fillStyle = '#000000';
-      fill(player.origin.x, player.origin.y - 18, 18, 5);
-      ctx.fillStyle = '#ffffff';
-      fill(player.origin.x + 1, player.origin.y - 17, 16, 3);
-      ctx.fillStyle = 'rgb(0,255,0)';
-      fill(player.origin.x + 1, player.origin.y - 17, 16 * player.health / 100, 3);
+      // Draw trails
+      for(var j = 0; j < player.trail.length; j++) {
+        var particle = player.trail[j];
+        var smokeColor = Math.floor(160 * (particle.health / 100))
+        ctx.fillStyle = 'rgba(' + smokeColor + ',' + smokeColor + ',' + smokeColor + ',' + (Math.pow(particle.strength / 1000, 1.3)) + ')';
+        fill(particle.x - particle.width * (1.2 * 100 / particle.strength), particle.y - particle.height * (-1.5 * 100 / particle.strength), particle.width * (100 / particle.strength), particle.height * (100 / particle.strength))
+        particle.strength--;
+        if(particle.strength < 1) {
+          if(player.trail) {
+            player.trail.splice(j, 1)
+          }
+        }
+      }
+
+      ctx.translate(player.origin.x + cameraPan.x + player.size.width / 2, player.origin.y + cameraPan.y + player.size.height / 2);
+      ctx.rotate(player.heading.current * 1)
+
+      // Draw "player"
+      //fill(0, 0, player.size.height, player.size.height);
+      var img = new Image();
+      if(player.team == 'good') {
+        if(player.health < 1) {
+          img.src = player.type + "-good-dead.png";
+        } else {
+          img.src = player.type + "-good.png";
+        }
+      } else {
+        if(player.health < 1) {
+          img.src = player.type + "-bad-dead.png";
+        } else if(player.health < 20) {
+          img.src = player.type + "-bad-hurt-bad.png";
+        } else if(player.health < 50) {
+          img.src = player.type + "-bad-hurt.png";
+        } else {
+          img.src = player.type + "-bad.png";
+        }
+      }
+      ctx.drawImage(img, player.size.width * -0.5, player.size.height * -0.5, player.size.width, player.size.height);
+      //ctx.fillRect(player.size.width * -0.5, player.size.height * -0.5, player.size.width, player.size.height);
+
+      ctx.rotate(player.heading.current * -1)
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+      // Draw turret
+      if(player.health > 0) {
+        ctx.translate(player.origin.x + cameraPan.x + player.size.width / 2, player.origin.y + cameraPan.y + player.size.height / 2);
+        ctx.rotate((Math.PI + player.heading.current - player.weapon.aim.current) * 1)
+        var img = new Image();
+        if(player.team === 'good') {
+          img.src = player.type + "-good-turret.png";
+          if(player.fireing && player.animation.didJustFire == false) {
+            img.src = player.type + "-good-turret-fire.png";
+            player.animation.didJustFire = true
+          } else {
+            img.src = player.type + "-good-turret.png";
+            player.animation.didJustFire = false
+          }
+        } else {
+          if(player.fireing && player.animation.didJustFire == false) {
+            img.src = player.type + "-bad-turret-fire.png";
+            player.animation.didJustFire = true
+          } else {
+            img.src = player.type + "-bad-turret.png";
+            player.animation.didJustFire = false
+          }
+        }
+        ctx.drawImage(img, player.size.width * -0.5, player.size.height * -0.5, player.size.width, player.size.height);
+        ctx.rotate((Math.PI + player.heading.current - player.weapon.aim.current) * 1)
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+      }
+
+      if(player.takingFireFrom.length > 0) {
+        for(var j = 0; j < player.takingFireFrom.length; j++) {
+          var angle = player.takingFireFrom[j];
+
+          ctx.translate(player.origin.x + cameraPan.x + player.size.width / 2, player.origin.y + cameraPan.y + player.size.height / 2);
+          ctx.rotate((Math.PI + angle) * 1)
+          var img = new Image();
+          img.src = "taking-fire-indicator.png";
+          ctx.drawImage(img, player.size.width * -0.5, player.size.height * -0.5, player.size.width, player.size.height);
+
+          ctx.rotate((Math.PI + angle) * -1)
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+          if(player.selected) {
+            console.log(angle)
+          }
+        }
+      }
+
+      if(player.selected) {
+        // Draw highlight
+        ctx.fillStyle = 'rgba(0,150,200,0.2)'
+        fill(player.origin.x,player.origin.y,player.size.width,player.size.height)
+      }
+      if(player.selected || player.attackers > 0 || (player.health > 0 && player.health < 50)) {
+
+        // Draw health
+        ctx.fillStyle = (player.selected) ? 'rgb(0,100,255)' : 'rgba(0,0,0,.4)';
+        fill(Math.abs(player.origin.x + (player.size.width / 1.5)), Math.abs(player.origin.y + player.size.height / 3), 18, 7);
+        ctx.fillStyle = '#ffffff';
+        fill(Math.abs(player.origin.x + (player.size.width / 1.5)) + 1 , Math.abs(player.origin.y + player.size.height / 3) + 1, 16, 5);
+        ctx.fillStyle = (player.health < 40) ? 'rgb(255,0,0)' : 'rgb(0,255,0)';
+        fill(Math.abs(player.origin.x + (player.size.width / 1.5)) + 1, Math.abs(player.origin.y + player.size.height / 3) + 1, 16 * player.health / 100, 5);
+      }
+
+//      ctx.fillStyle = '#000000';
+//      ctx.fillText(player.weapon.aim.target + ' ---   ' + Math.floor(player.weapon.aim.target * (180/Math.PI)),10,50);
+
     }
 
     // Draw the current selection
     ctx.fillStyle = 'rgba(255,0,0,.2)'
     fill(events.selection.start.x, events.selection.start.y, events.selection.width, events.selection.height);
+
+    requestAnimationFrame( function() {
+      render();
+    });
 
   }
 
@@ -180,6 +344,7 @@
     // Reset attacker stats
     for(var i = 0; i < players.length; i++) {
       players[i].attackers = 0;
+      players[i].takingFireFrom = [];
     }
 
     for(var i = 0; i < players.length; i++) {
@@ -205,30 +370,62 @@
             continue;
           }
 
+          // Medics can't heal other medics
+          if(thisPlayer.type == 'medic' && otherPlayer.type == 'medic') {
+            continue;
+          }
+
           // Calculate the distance between thisPlayer and otherPlayer
           var distance = Math.sqrt(
             Math.pow((thisPlayer.origin.x - otherPlayer.origin.x), 2) +
             Math.pow((thisPlayer.origin.y - otherPlayer.origin.y), 2)
           );
 
+
+          // Analyze aim
+          var aim = thisPlayer.heading.current - Math.atan2((thisPlayer.origin.y - otherPlayer.origin.y), (thisPlayer.origin.x - otherPlayer.origin.x)) - Math.PI / 2
+          if(thisPlayer.weapon.aim.current > 0 && aim < Math.PI * -1) {
+            aim = aim + Math.PI * 2
+          }
+          thisPlayer.weapon.aim.target = aim
+
           // If the distance is within the weapon's range
           if(distance < thisPlayer.weapon.range) {
-            if(thisPlayer.healthEffect < 0) {
-              otherPlayer.health += (thisPlayer.healthEffect / 10) / otherPlayer.shield; // Shield protects you from damage
-            } else {
-              otherPlayer.health += (thisPlayer.healthEffect / 10);
-            }
-            if(otherPlayer.health > 100) {
-              otherPlayer.health = 100
-            }
-            otherPlayer.attackers += 1;
 
-            // DEBUG
-            ctx.strokeStyle = (thisPlayer.team === 'good') ? 'rgb(0,150,20)': 'rgb(255,50,0)';
-            ctx.beginPath();
-            ctx.moveTo(thisPlayer.origin.x + cameraPan.x, thisPlayer.origin.y + cameraPan.y);
-            ctx.lineTo(otherPlayer.origin.x + cameraPan.x, otherPlayer.origin.y + cameraPan.y);
-            ctx.stroke();
+            // Check if aim is right
+            if (Math.abs(thisPlayer.weapon.aim.current - thisPlayer.weapon.aim.target) > .11) {
+              if(thisPlayer.weapon.aim.target < thisPlayer.weapon.aim.current) {
+                thisPlayer.weapon.aim.current -= 0.1
+              } else {
+                thisPlayer.weapon.aim.current += 0.1
+              }
+
+              thisPlayer.fireing = false;
+
+            // If the player is done aiming
+            } else {
+
+              if(thisPlayer.healthEffect < 0) {
+                otherPlayer.health += (thisPlayer.healthEffect / 10) / otherPlayer.shield; // Shield protects you from damage
+              } else {
+                otherPlayer.health += (thisPlayer.healthEffect / 10);
+              }
+              if(otherPlayer.health > 100) {
+                otherPlayer.health = 100
+              }
+              otherPlayer.attackers += 1;
+              otherPlayer.takingFireFrom.push(thisPlayer.heading.current - thisPlayer.weapon.aim.current);
+
+              thisPlayer.fireing = true
+
+              // DEBUG
+              //ctx.strokeStyle = (thisPlayer.team === 'good') ? 'rgb(0,150,20)': 'rgb(255,50,0)';
+              //ctx.beginPath();
+              //ctx.moveTo(thisPlayer.origin.x + cameraPan.x, thisPlayer.origin.y + cameraPan.y);
+              //ctx.lineTo(otherPlayer.origin.x + cameraPan.x, otherPlayer.origin.y + cameraPan.y);
+              //ctx.stroke();
+
+            }
 
             // Stop looping through enemies. It can only hurt one player at the time
             break;
@@ -249,33 +446,57 @@
         continue;
       }
 
+      // If it has nowhere to go
+      if(player.destination.length == 0) continue;
+
       // Calculate slope between origin and destination
-      var slope = (player.origin.y - player.destination.y) / (player.origin.x - player.destination.x)
+      var slope = (player.origin.y - player.destination[0].y) / (player.origin.x - player.destination[0].x)
+      var atan2 = Math.atan2((player.origin.y - player.destination[0].y), (player.origin.x - player.destination[0].x)) - Math.PI / 2
+      if(player.heading.current > 0 && atan2 < Math.PI * -1) {
+        atan2 = atan2 + Math.PI * 2
+      }
+      player.heading.target = atan2
 
-      // Calculate length of path to destination
-      var segmentLength = Math.sqrt(
-        Math.pow(player.origin.x - player.destination.x, 2) +
-        Math.pow(player.origin.y - player.destination.y, 2)
-      )
-
-      if (segmentLength > 5) {
-
-        // Calculate how much we should add to x with each iteration
-        var addX = Math.abs(player.destination.x - player.origin.x) / segmentLength * config.playerSpeed * (player.speed / 10);
-        var addY = addX * slope;
-
-        // Update x
-        if (player.origin.x > player.destination.x) {
-          player.origin.x -= addX;
-        } else if (player.origin.x < player.destination.x) {
-          player.origin.x += addX;
+      // Update current rotation
+      if (Math.abs(player.heading.current - player.heading.target) > .11 && player.speed !== 0) {
+        if(player.heading.target < player.heading.current) {
+          player.heading.current -= 0.1
+        } else {
+          player.heading.current += 0.1
         }
 
-        // Update y
-        if (player.origin.x > player.destination.x) {
-          player.origin.y -= addY;
-        } else if (player.origin.x < player.destination.x) {
-          player.origin.y += addY;
+      // If the player is done rotating, move
+      } else {
+
+        // Calculate length of path to destination
+        var segmentLength = Math.sqrt(
+          Math.pow(player.origin.x - player.destination[0].x, 2) +
+          Math.pow(player.origin.y - player.destination[0].y, 2)
+        )
+
+        if (segmentLength > 5) {
+
+          // Calculate how much we should add to x with each iteration
+          var addX = Math.abs(player.destination[0].x - player.origin.x) / segmentLength * config.playerSpeed * (player.speed / 10);
+          var addY = addX * slope;
+
+          // Update x
+          if (player.origin.x > player.destination[0].x) {
+            player.origin.x -= addX;
+          } else if (player.origin.x < player.destination[0].x) {
+            player.origin.x += addX;
+          }
+
+          // Update y
+          if (player.origin.x > player.destination[0].x) {
+            player.origin.y -= addY;
+          } else if (player.origin.x < player.destination[0].x) {
+            player.origin.y += addY;
+          }
+        } else {
+          // We are where we want to be.
+          // Remove the current destination.
+          player.destination.shift()
         }
       }
     }
@@ -339,39 +560,40 @@
 
       // Ignore most cycles. This makes enemies much stupider
       // and greatly affects the feel and difficulty of the game
-      if(Math.random() < 0.1) return false;
+      if(Math.random() < 0.2) return false;
 
       for(var j = 0; j < players.length; j++) {
         var otherPlayer = players[j];
-        if(otherPlayer.team == 'bad' || otherPlayer.health <= 0 || otherPlayer.attackers > 3) continue; // Ignore team mates (other bad players)
+        if(otherPlayer.team == 'bad' || otherPlayer.health <= 0 || otherPlayer.attackers > 2) continue; // Ignore team mates (other bad players)
         var distance = Math.sqrt(
           Math.pow((thisPlayer.origin.x - otherPlayer.origin.x), 2) +
           Math.pow((thisPlayer.origin.y - otherPlayer.origin.y), 2)
         );
         if(distance < smallestDistanceFound) {
           smallestDistanceFound = distance;
+          var midpointX = (otherPlayer.origin.x + thisPlayer.origin.x) / 2;
+          var midpointY = (otherPlayer.origin.y + thisPlayer.origin.y) / 2;
           nearbyCoordinates = {
-            x: otherPlayer.origin.x + Math.random() * 50,
-            y: otherPlayer.origin.y + Math.random() * 50
+            x: midpointX + -100 + Math.random() * 200,
+            y: midpointY + -100 + Math.random() * 200
           }
         }
       }
 
-      thisPlayer.destination = nearbyCoordinates
+      thisPlayer.destination[0] = nearbyCoordinates
     }
   }
 
   function moveIdlePlayers() {
     for(var i = 0; i < players.length; i++) {
       var player = players[i];
-      if (
-        Math.abs(player.origin.x - player.destination.x) < 6 &&
-        Math.abs(player.origin.y - player.destination.y) < 6
-      ) {
-        if(Math.random() > .99) {
-          var size = Math.random() * 150
-          player.destination.x = player.origin.x + (-0.5 * size + Math.random() * size)
-          player.destination.y = player.origin.y + (-0.5 * size + Math.random() * size)
+      if (player.destination.length == 0) {
+        if(Math.random() > 0.98) {
+          var size = Math.random() * 50
+          player.destination.push({
+            x: player.origin.x + (-0.5 * size + Math.random() * size),
+            y: player.origin.y + (-0.5 * size + Math.random() * size)
+          })
         }
       }
     }
@@ -387,10 +609,11 @@
     for(var i = 0; i < players.length; i++) {
       var player = players[i];
       if (player.selected) {
-        players[i].destination = {
-          x: x + (-50 + Math.random() * 100), // Note the randomness
-          y: y + (-50 + Math.random() * 100)
-        }
+        player.destination.shift()
+        players[i].destination.push({
+          x: x + (-50 + Math.random() * 200), // Note the randomness
+          y: y + (-50 + Math.random() * 200)
+        })
       }
     }
   }
@@ -411,7 +634,7 @@
     calculateHealth();
     moveIdlePlayers();
 
-    if(Math.random() > 0.995) {
+    if(Math.random() > 0.96) {
       spawnEnemies();
     }
 
@@ -424,14 +647,14 @@
     canvas.height = window.innerHeight
 
     // Set up some demo players
-    for(var i = 0; i < 50; i++) {
+    for(var i = 0; i < 60; i++) {
       players[i] = createPlayer()
     }
 
     // Render scene over and over
-    setInterval( function() {
+    requestAnimationFrame( function() {
       render();
-    }, 20);
+    });
 
     // Start time in game
     setInterval( function() {
