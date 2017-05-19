@@ -49,12 +49,6 @@
     },
     isPanning: false
   }
-  var spawnStats = {
-    type: 0
-  }
-  var spawnLimits = {
-    medic: 5
-  }
 
   // Generate a new character
   function createPlayer(team, type) {
@@ -65,13 +59,11 @@
       var myTeam = teams[Math.round(Math.random())];
     }
 
-    var types = ['robot', 'tank', 'medic']
-    var myType = types[Math.floor(Math.random() * types.length)];
-    spawnStats[myType] += 1
-    if(typeof spawnLimits[myType] !== 'undefined') {
-      if(spawnStats[myType] == spawnLimits[myType]) {
-        console.log('too many', myType)
-      }
+    var types = ['robot', 'tank'/*, 'medic'*/]
+    if (typeof type !== 'undefined') {
+      var myType = type;
+    } else {
+      var myType = types[Math.floor(Math.random() * types.length)];
     }
 
     switch(myType) {
@@ -647,8 +639,14 @@
     canvas.height = window.innerHeight
 
     // Set up some demo players
-    for(var i = 0; i < 60; i++) {
-      players[i] = createPlayer()
+    for(var i = 0; i < 5; i++) {
+      players.push(createPlayer('good', 'medic'))
+    }
+    for(var i = 0; i < 5; i++) {
+      players.push(createPlayer('bad', 'medic'))
+    }
+    for(var i = 0; i < 50; i++) {
+      players.push(createPlayer())
     }
 
     // Render scene over and over
